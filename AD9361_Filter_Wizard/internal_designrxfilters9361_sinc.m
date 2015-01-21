@@ -32,9 +32,9 @@
 %  STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 %  THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-% Inputs
+% Inputs (structure containing the following fields)
 % ============================================
-% Fout       = Output sample data rate (in Hz)
+% data_rate  = Output sample data rate (in Hz)
 % FIR_interp = FIR decimation factor
 % HB_interp  = half band filters decimation factor
 % PLL_mult   = PLL multiplication
@@ -46,28 +46,27 @@
 % phEQ       = Phase Equalization on (not -1)/off (-1)
 % int_FIR    = Use AD9361 FIR on (1)/off (0)
 % wnom       = analog cutoff frequency (in Hz)
+% converter_rate = converter (DAC/ADC) sampling rate (in Hz)
+% clkPLL     = PLL frequency (in HZ)
 %
-% Outputs
-%===============================================
+% Outputs (structure containing the following fields)
+% ===============================================
 % rfirtaps         = fixed point coefficients for PROG RX FIR
 % rxFilters        = system object for visualization (does not include analog filters)
 % dBripple_actual  = actual passband ripple
 % dBstop_actual    = actual stopband attentuation
 % delay            = actual delay used in phase equalization
-% webinar          = initialzation for SimRF FMCOMMS2 Rx model
-%
-function [rfirtaps,rxFilters,Hanalog,dBripple_actual,dBstop_actual,delay,webinar,tohw,b1,a1,b2,a2] = internal_designrxfilters9361_sinc(Fout,FIR_interp,HB_interp,PLL_mult,Fpass,Fstop,dBripple,dBstop,dBstop_FIR,phEQ,int_FIR,wnom)
+% webinar          = initialization for SimRF FMCOMMS2 Rx model
 
-Fadc = Fout * FIR_interp * HB_interp;
-clkPLL = Fadc * PLL_mult;
+function result = internal_designrxfilters9361_sinc(input)
 
-if ~wnom
-    wnom = 1.4*Fpass;
-    div = ceil((clkPLL/wnom)*(log(2)/(2*pi)));
+if ~input.wnom
+    input.wnom = 1.4 * input.Fpass;
+    div = ceil((input.clkPLL/input.wnom)*(log(2)/(2*pi)));
     caldiv = min(max(div,3),511);
-    wc = (clkPLL/caldiv)*(log(2)/(2*pi));
+    wc = (input.clkPLL/caldiv)*(log(2)/(2*pi));
 else
-    wc = wnom;
+    wc = input.wnom;
 end
 
 wTIA = wc*(2.5/1.4);
@@ -77,10 +76,10 @@ wTIA = wc*(2.5/1.4);
 [b2,a2] = butter(3,2*pi*wc,'s');    % 3rd order
 
 % Digital representation of the analog filters (It is an approximation for group delay calculation only)
-[z1,p1,k1] = butter(3,wc/(Fadc/2),'low');
+[z1,p1,k1] = butter(3,wc/(input.converter_rate/2),'low');
 [sos1,g1] = zp2sos(z1,p1,k1);
 Hd1 = dfilt.df2tsos(sos1,g1);
-[z2,p2,k2] = butter(1,wTIA/(Fadc/2),'low');
+[z2,p2,k2] = butter(1,wTIA/(input.converter_rate/2),'low');
 [sos2,g2] = zp2sos(z2,p2,k2);
 Hd2 = dfilt.df2tsos(sos2,g2);
 Hanalog = cascade(Hd2,Hd1);
@@ -96,64 +95,70 @@ Hm2 = mfilt.firdecim(2,hb2);
 Hm3 = mfilt.firdecim(2,hb3);
 Hm4 = mfilt.firdecim(3,dec3);
 
-if license('test','fixed_point_toolbox') &&  license('checkout','fixed_point_toolbox')
-    
+if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
     set(Hm1,'arithmetic','fixed');
     set(Hm2,'arithmetic','fixed');
     set(Hm3,'arithmetic','fixed');
     set(Hm4,'arithmetic','fixed');
-    
+
     Hm1.InputWordLength = 16;
     Hm1.InputFracLength = 14;
     Hm1.FilterInternals = 'SpecifyPrecision';
     Hm1.OutputWordLength = 16;
     Hm1.OutputFracLength = 14;
     Hm1.CoeffWordLength = 16;
-    
+
     Hm2.InputWordLength = 16;
     Hm2.InputFracLength = 14;
     Hm2.FilterInternals = 'SpecifyPrecision';
     Hm2.OutputWordLength = 16;
     Hm2.OutputFracLength = 14;
     Hm2.CoeffWordLength = 16;
-    
+
     Hm3.InputWordLength = 4;
     Hm3.InputFracLength = 2;
     Hm3.FilterInternals = 'SpecifyPrecision';
     Hm3.OutputWordLength = 8;
     Hm3.OutputFracLength = 6;
     Hm3.CoeffWordLength = 16;
-    
+
     Hm4.InputWordLength = 4;
     Hm4.InputFracLength = 2;
     Hm4.FilterInternals = 'SpecifyPrecision';
     Hm4.OutputWordLength = 16;
     Hm4.OutputFracLength = 14;
     Hm4.CoeffWordLength = 16;
-    
 end
 
-[hb1, hb2, hb3, dec3] = setrxhb9361(HB_interp);
-
 % convert the enables into a string
-enables = strrep(num2str([hb1 hb2 hb3 dec3]), ' ', '');
+enables = strrep(num2str([input.HB1 input.HB2 input.HB3]), ' ', '');
 switch enables
-    case '1111' % only RFIR
+    case '111' % only RFIR
         Filter1 = 1;
-    case '2111' % Hb1
+    case '211' % Hb1
         Filter1 = Hm1;
-    case '2211' % Hb2,Hb1
+    case '221' % Hb2,Hb1
         Filter1 = cascade(Hm2,Hm1);
-    case '2221' % Hb3,Hb2,Hb1
+    case '222' % Hb3,Hb2,Hb1
         Filter1 = cascade(Hm3,Hm2,Hm1);
-    case '1113' % Dec3
+    case '113' % Dec3
         Filter1 = Hm4;
-    case '2113' % Dec3,Hb1
+    case '213' % Dec3,Hb1
         Filter1 = cascade(Hm4,Hm1);
-    case '2213' % Dec3,Hb2,Hb1
+    case '223' % Dec3,Hb2,Hb1
         Filter1 = cascade(Hm4,Hm2,Hm1);
     otherwise
         error('ddcresponse:IllegalOption', 'At least one of the stages must be there.')
+end
+
+% Modify the enables string to maintain old webinar struct compat.
+% This should be removed once the SimRF model doesn't rely on the four
+% character string and instead can use the straight halfband values.
+if input.HB3 == 3
+    enables(end) = '1';
+    enables(end+1) = '3';
+else
+    enables(end+1) = '1';
 end
 
 % Find out the best fit delay on passband
@@ -162,12 +167,12 @@ w = zeros(1,Nw);
 phi = zeros(1,Nw);
 invariance = zeros(1,Nw);
 
-w(1) = -Fpass;
+w(1) = -input.Fpass;
 for i = 2:(Nw)
     w(i) = w(1)-2*w(1)*i/(Nw);
 end
 
-response = analogresp('Rx',w,Fadc,b1,a1,b2,a2).*freqz(Filter1,w,Fadc);
+response = analogresp('Rx',w,input.converter_rate,b1,a1,b2,a2).*freqz(Filter1,w,input.converter_rate);
 for i = 1:(Nw)
     invariance(i) = real(response(i))^2+imag(response(i))^2;
 end
@@ -184,17 +189,17 @@ sigmaxx = sum(w.*w.*invariance);
 sigmaxy = sum(w.*phi.*invariance);
 delta = sigma*sigmaxx-sigmax^2;
 b = (sigma*sigmaxy-sigmax*sigmay)/delta;
-if phEQ == 0 || phEQ == -1
+if input.phEQ == 0 || input.phEQ == -1
     delay = -b/(2*pi);
 else
-    delay = phEQ*(1e-9);
+    delay = input.phEQ*(1e-9);
 end
 
 % Design the PROG RX FIR
 G = 16384;
-clkRFIR = Fout*FIR_interp;
-Gpass = floor(G*Fpass/clkRFIR);
-Gstop=ceil(G*Fstop/clkRFIR);
+clkRFIR = input.data_rate*input.FIR_interp;
+Gpass = floor(G*input.Fpass/clkRFIR);
+Gstop=ceil(G*input.Fstop/clkRFIR);
 Gpass = min(Gpass,Gstop-1);
 fg = zeros(1,Gpass);
 omega = zeros(1,Gpass);
@@ -204,10 +209,10 @@ for i = 1:(Gpass+1)
     fg(i) = (i-1)/G;
     omega(i) = fg(i)*clkRFIR;
 end
-rg1 = analogresp('Rx',omega,Fadc,b1,a1,b2,a2).*freqz(Filter1,omega,Fadc);
+rg1 = analogresp('Rx',omega,input.converter_rate,b1,a1,b2,a2).*freqz(Filter1,omega,input.converter_rate);
 rg2 = exp(-1i*2*pi*omega*delay);
 rg = rg2./rg1;
-w = abs(rg1)/(dBinv(dBripple/2)-1);
+w = abs(rg1)/(dBinv(input.dBripple/2)-1);
 
 g = Gpass+1;
 % stop band
@@ -217,12 +222,12 @@ for m = Gstop:(G/2)
     omega(g) = fg(g)*clkRFIR;
     rg(g) = 0;
 end
-wg1 = abs(analogresp('Rx',omega(Gpass+2:end),Fadc,b1,a1,b2,a2).*freqz(Filter1,omega(Gpass+2:end),Fadc));
-wg2 = (wg1)/(dBinv(-dBstop));
-wg3 = dBinv(dBstop_FIR);
+wg1 = abs(analogresp('Rx',omega(Gpass+2:end),input.converter_rate,b1,a1,b2,a2).*freqz(Filter1,omega(Gpass+2:end),input.converter_rate));
+wg2 = (wg1)/(dBinv(-input.dBstop));
+wg3 = dBinv(input.dBstop_FIR);
 wg = max(wg2,wg3);
 grid = fg;
-if phEQ == -1
+if input.phEQ == -1
     resp = abs(rg);
 else resp = rg;
 end
@@ -240,30 +245,30 @@ W1 = weight(1:Gpass+1);
 W2 = weight(Gpass+2:end);
 
 % Determine the number of taps for RFIR
-N = min(16*floor(Fadc/(2*Fout)),128);
+N = min(16*floor(input.converter_rate/(2*input.data_rate)),128);
 tap_store = zeros(N/16,N);
 dBripple_actual_vector = zeros(N/16,1);
 dBstop_actual_vector = zeros(N/16,1);
 i = 1;
 
 while (1)
-    if int_FIR
+    if input.int_FIR
         d = fdesign.arbmag('N,B,F,A',N-1,B,F1,A1,F2,A2);
     else
         d = fdesign.arbmag('B,F,A,R');
         d.NBands = 2;
         d.B1Frequencies = F1;
         d.B1Amplitudes = A1;
-        d.B1Ripple = db2mag(-dBstop);
+        d.B1Ripple = db2mag(-input.dBstop);
         d.B2Frequencies = F2;
         d.B2Amplitudes = A2;
-        d.B2Ripple = db2mag(-dBstop);
+        d.B2Ripple = db2mag(-input.dBstop);
     end
     Hd = design(d,'equiripple','B1Weights',W1,'B2Weights',W2,'SystemObject',false);
     ccoef = Hd.Numerator;
     M = length(ccoef);
-    
-    if phEQ ~= -1
+
+    if input.phEQ ~= -1
         sg = 0.5-grid(end:-1:1);
         sr = imag(resp(end:-1:1));
         sw = weight(end:-1:1);
@@ -273,7 +278,7 @@ while (1)
         A4 = sr(G/2-Gstop+2:end);
         W3 = sw(1:G/2-Gstop+1);
         W4 = sw(G/2-Gstop+2:end);
-        if int_FIR
+        if input.int_FIR
             d2 = fdesign.arbmag('N,B,F,A',N-1,B,F3,A3,F4,A4);
         else
             d2 = fdesign.arbmag('N,B,F,A',M-1,B,F3,A3,F4,A4);
@@ -287,9 +292,9 @@ while (1)
         scoef = 0;
     end
     tap_store(i,1:M)=ccoef+scoef;
-    
-    Hmd = mfilt.firdecim(FIR_interp,tap_store(i,1:M));
-    if license('test','fixed_point_toolbox') &&  license('checkout','fixed_point_toolbox')
+
+    Hmd = mfilt.firdecim(input.FIR_interp,tap_store(i,1:M));
+    if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
         set(Hmd,'arithmetic','fixed');
         Hmd.InputWordLength = 16;
         Hmd.InputFracLength = 14;
@@ -299,24 +304,24 @@ while (1)
         Hmd.CoeffWordLength = 16;
     end
     rxFilters=cascade(Filter1,Hmd);
-    
+
     % quantitative values about actual passband and stopband
-    rg_pass = abs(analogresp('Rx',omega(1:Gpass+1),Fadc,b1,a1,b2,a2).*freqz(rxFilters,omega(1:Gpass+1),Fadc));
-    rg_stop = abs(analogresp('Rx',omega(Gpass+2:end),Fadc,b1,a1,b2,a2).*freqz(rxFilters,omega(Gpass+2:end),Fadc));
+    rg_pass = abs(analogresp('Rx',omega(1:Gpass+1),input.converter_rate,b1,a1,b2,a2).*freqz(rxFilters,omega(1:Gpass+1),input.converter_rate));
+    rg_stop = abs(analogresp('Rx',omega(Gpass+2:end),input.converter_rate,b1,a1,b2,a2).*freqz(rxFilters,omega(Gpass+2:end),input.converter_rate));
     dBripple_actual_vector(i) = mag2db(max(rg_pass))-mag2db(min(rg_pass));
     dBstop_actual_vector(i) = -mag2db(max(rg_stop));
-    
-    if int_FIR == 0
+
+    if input.int_FIR == 0
         h = tap_store(1,1:M);
         dBripple_actual = dBripple_actual_vector(1);
         dBstop_actual = dBstop_actual_vector(1);
         break
-    elseif dBripple_actual_vector(1) > dBripple || dBstop_actual_vector(1) < dBstop
+    elseif dBripple_actual_vector(1) > input.dBripple || dBstop_actual_vector(1) < input.dBstop
         h = tap_store(1,1:N);
         dBripple_actual = dBripple_actual_vector(1);
         dBstop_actual = dBstop_actual_vector(1);
         break
-    elseif dBripple_actual_vector(i) > dBripple || dBstop_actual_vector(i) < dBstop
+    elseif dBripple_actual_vector(i) > input.dBripple || dBstop_actual_vector(i) < input.dBstop
         h = tap_store(i-1,1:N+16);
         dBripple_actual = dBripple_actual_vector(i-1);
         dBstop_actual = dBstop_actual_vector(i-1);
@@ -327,8 +332,8 @@ while (1)
     end
 end
 
-Hmd = mfilt.firdecim(FIR_interp,h);
-if license('test','fixed_point_toolbox') &&  license('checkout','fixed_point_toolbox')
+Hmd = mfilt.firdecim(input.FIR_interp,h);
+if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
     set(Hmd,'arithmetic','fixed');
     Hmd.InputWordLength = 16;
     Hmd.InputFracLength = 14;
@@ -360,18 +365,18 @@ if length(rfirtaps) < 128
     rfirtaps = [rfirtaps,zeros(1,128-length(rfirtaps))];
 end
 
-webinar.Fout = Fout;
-webinar.FIR_interp = FIR_interp;
-webinar.HB_interp = HB_interp;
-webinar.PLL_mult = PLL_mult;
-webinar.Fpass = Fpass;
-webinar.Fstop = Fstop;
-webinar.dBripple = dBripple;
-webinar.dBstop = dBstop;
-webinar.dBstop_FIR = dBstop_FIR;
-webinar.phEQ = phEQ;
-webinar.int_FIR = int_FIR;
-webinar.wnom = wnom;
+webinar.Fout = input.data_rate;
+webinar.FIR_interp = input.FIR_interp;
+webinar.HB_interp = input.HB_interp;
+webinar.PLL_mult = input.PLL_mult;
+webinar.Fpass = input.Fpass;
+webinar.Fstop = input.Fstop;
+webinar.dBripple = input.dBripple;
+webinar.dBstop = input.dBstop;
+webinar.dBstop_FIR = input.dBstop_FIR;
+webinar.phEQ = input.phEQ;
+webinar.int_FIR = input.int_FIR;
+webinar.wnom = input.wnom;
 webinar.Hm1_rx = Hm1;
 webinar.Hm2_rx = Hm2;
 webinar.Hm3_rx = Hm3;
@@ -379,14 +384,27 @@ webinar.Hm4_rx = Hm4;
 webinar.Hmd_rx = Hmd;
 webinar.enable_rx = enables;
 
-tohw.RXSAMP = Fout;
-tohw.RF = Fout * FIR_interp;
-tohw.R1 = tohw.RF * hb1;
-tohw.R2 = tohw.R1 * hb2;
-tohw.ADC = Fadc;
-tohw.BBPLL = clkPLL;
+tohw.RXSAMP = input.data_rate;
+tohw.RF = input.data_rate * input.FIR_interp;
+tohw.R1 = tohw.RF * input.HB1;
+tohw.R2 = tohw.R1 * input.HB2;
+tohw.ADC = input.converter_rate;
+tohw.BBPLL = input.clkPLL;
 tohw.Coefficient = rfirtaps;
 tohw.CoefficientSize = length(h);
-tohw.Decimation = FIR_interp;
+tohw.Decimation = input.FIR_interp;
 tohw.Gain = gain;
-tohw.RFBandwidth = round(Fpass*2);
+tohw.RFBandwidth = input.RFbw;
+
+result.rfirtaps = rfirtaps;
+result.rxFilters = rxFilters;
+result.Hanalog = Hanalog;
+result.dBripple_actual = dBripple_actual;
+result.dBstop_actual = dBstop_actual;
+result.delay = delay;
+result.webinar = webinar;
+result.tohw = tohw;
+result.b1 = b1;
+result.a1 = a1;
+result.b2 = b2;
+result.a2 = a2;

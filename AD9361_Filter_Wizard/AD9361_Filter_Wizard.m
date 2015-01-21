@@ -592,12 +592,12 @@ data_rate = get_data_rate(handles);
 %fprintf(fid, '# PLL CLK Frequecy = %f Hz\r\n', pll_rate);
 %fprintf(fid, '# Converter Sample Frequecy = %f Hz\r\n', converter_rate);
 fprintf(fid, '# Data Sample Frequency = %f Hz\r\n', data_rate);
-fprintf(fid, 'TX 3 GAIN %d INT %d\r\n', handles.tx_gain, handles.tx_int);
-fprintf(fid, 'RX 3 GAIN %d DEC %d\r\n', handles.rx_gain, handles.rx_int);
-fprintf(fid, 'RTX %d %d %d %d %d %d\r\n', handles.tx_PLL, handles.tx_HB3, handles.tx_HB2, handles.tx_HB1, handles.tx_FIR, handles.tx_DATA);
-fprintf(fid, 'RRX %d %d %d %d %d %d\r\n', handles.rx_PLL, handles.rx_HB3, handles.rx_HB2, handles.rx_HB1, handles.rx_FIR, handles.rx_DATA);
-fprintf(fid, 'BWTX %d\r\n', handles.tx_BW);
-fprintf(fid, 'BWRX %d\r\n', handles.rx_BW);
+fprintf(fid, 'TX 3 GAIN %d INT %d\r\n', handles.tx.gain, handles.tx.int);
+fprintf(fid, 'RX 3 GAIN %d DEC %d\r\n', handles.rx.gain, handles.rx.int);
+fprintf(fid, 'RTX %d %d %d %d %d %d\r\n', handles.tx.PLL, handles.tx.HB3, handles.tx.HB2, handles.tx.HB1, handles.tx.FIR, handles.tx.DATA);
+fprintf(fid, 'RRX %d %d %d %d %d %d\r\n', handles.rx.PLL, handles.rx.HB3, handles.rx.HB2, handles.rx.HB1, handles.rx.FIR, handles.rx.DATA);
+fprintf(fid, 'BWTX %d\r\n', handles.tx.BW);
+fprintf(fid, 'BWRX %d\r\n', handles.rx.BW);
 fclose(fid);
 
 % concat and transform Rx and Tx coefficient matrices for outputting
@@ -611,12 +611,12 @@ function save2target_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-fir_filter_str = sprintf('TX 3 GAIN %d INT %d', handles.tx_gain, handles.tx_int);
-fir_filter_str = strcat(fir_filter_str, sprintf('\nRX 3 GAIN %d DEC %d', handles.rx_gain, handles.rx_int));
-fir_filter_str = strcat(fir_filter_str, sprintf('\nRTX %d %d %d %d %d %d', handles.tx_PLL, handles.tx_HB3, handles.tx_HB2, handles.tx_HB1, handles.tx_FIR, handles.tx_DATA));
-fir_filter_str = strcat(fir_filter_str, sprintf('\nRRX %d %d %d %d %d %d', handles.rx_PLL, handles.rx_HB3, handles.rx_HB2, handles.rx_HB1, handles.rx_FIR, handles.rx_DATA));
-fir_filter_str = strcat(fir_filter_str, sprintf('\nBWTX %d', handles.tx_BW));
-fir_filter_str = strcat(fir_filter_str, sprintf('\nBWRX %d', handles.rx_BW));
+fir_filter_str = sprintf('TX 3 GAIN %d INT %d', handles.tx.gain, handles.tx.int);
+fir_filter_str = strcat(fir_filter_str, sprintf('\nRX 3 GAIN %d DEC %d', handles.rx.gain, handles.rx.int));
+fir_filter_str = strcat(fir_filter_str, sprintf('\nRTX %d %d %d %d %d %d', handles.tx.PLL, handles.tx.HB3, handles.tx.HB2, handles.tx.HB1, handles.tx.FIR, handles.tx.DATA));
+fir_filter_str = strcat(fir_filter_str, sprintf('\nRRX %d %d %d %d %d %d', handles.rx.PLL, handles.rx.HB3, handles.rx.HB2, handles.rx.HB1, handles.rx.FIR, handles.rx.DATA));
+fir_filter_str = strcat(fir_filter_str, sprintf('\nBWTX %d', handles.tx.BW));
+fir_filter_str = strcat(fir_filter_str, sprintf('\nBWRX %d', handles.rx.BW));
 
 % concat and transform Rx and Tx coefficient matrices for outputting
 coefficients = flip(rot90(vertcat(handles.rfirtaps, handles.tfirtaps)));
@@ -645,12 +645,12 @@ if(ret < 0)
 end
 
 % explicitly write Rx/Tx RF bandwidth to target
-ret = writeAttributeString(handles.libiio_ctrl_dev, 'in_voltage_rf_bandwidth', num2str(handles.rx_BW));
+ret = writeAttributeString(handles.libiio_ctrl_dev, 'in_voltage_rf_bandwidth', num2str(handles.rx.BW));
 if(ret < 0)
     msgbox('Could not write Rx RF bandwidth to target!', 'Error', 'error');
     return;
 end
-ret = writeAttributeString(handles.libiio_ctrl_dev, 'out_voltage_rf_bandwidth', num2str(handles.tx_BW));
+ret = writeAttributeString(handles.libiio_ctrl_dev, 'out_voltage_rf_bandwidth', num2str(handles.tx.BW));
 if(ret < 0)
     msgbox('Could not write Tx RF bandwidth to target!', 'Error', 'error');
     return;
@@ -662,6 +662,8 @@ if(ret < 0)
     msgbox('Could not enable Rx/Tx FIR filters on target!', 'Error', 'error');
     return;
 end
+
+msgbox('FIR coefficients successfully written and enabled on target.', 'Filter enabled on target');
 
 
 function IP_num_Callback(hObject, eventdata, handles)
@@ -786,15 +788,30 @@ converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3 * sel.DAC_div
 fstop = sel.Fstop;
 fpass = sel.Fpass;
 
+
+N = 500;
+Fs = converter_rate; % sampling frequency
+F = linspace(0,converter_rate/2,2048);
+
+
+
 if (get(handles.filter_type, 'Value') == 1)
     Hmiddle = handles.filters.Stage(1);
+    Hmiddle = cascade(handles.analogfilter,Hmiddle);
     Hmd = handles.filters.Stage(2);
     tmp = 'Rx';
+    A = sinc(F/Fs).^3;
 else
     Hmiddle = handles.filters.Stage(2);
+    Hmiddle = cascade(Hmiddle,handles.analogfilter);
     Hmd = handles.filters.Stage(1);
     tmp = 'Tx';
+    A = sinc(F/Fs);
 end
+
+d = fdesign.arbmag('N,F,A',N,F,A,Fs);
+Hcon = design(d,'SystemObject',false);
+Hall = cascade(handles.grpdelaycal,Hcon);
 
 apass = str2double(get(handles.Apass, 'String'));
 astop = str2double(get(handles.Astop, 'String'));
@@ -802,14 +819,14 @@ astop = str2double(get(handles.Astop, 'String'));
 
 str = sprintf('%s Filter\nFpass = %g MHz; Fstop = %g MHz\nApass = %g dB; Astop = %g dB', tmp, fpass/1e6, fstop/1e6, apass, astop);
 
-hfvt1 = fvtool(Hmiddle,handles.filters,...
+hfvt1 = fvtool(Hcon,handles.analogfilter,Hmiddle,Hall,...
     'FrequencyRange','Specify freq. vector', ...
     'FrequencyVector',linspace(0,converter_rate/2,2048),'Fs',...
     converter_rate, ...
     'ShowReference','off','Color','White');
 set(hfvt1, 'Color', [1 1 1]);
 set(hfvt1.CurrentAxes, 'YLim', [-100 20]);
-legend(hfvt1, 'Half Band','HB + FIR');
+legend(hfvt1, 'Converter','Analog','Analog + Half Band','Analog + HB + FIR');
 text(1, 10,...
     str,...
     'BackgroundColor','white',...
@@ -876,30 +893,54 @@ set(handles.design_filter, 'Enable', 'off');
 
 sel = get_current_rxtx(handles);
 
-fstop = sel.Fstop;
-fpass = sel.Fpass;
-
-apass = sel.dBripple;
-astop = sel.dBstop;
-dbstop_min = sel.FIRdBmin;
-
-RFbw = round(fpass * 2);
 data_rate = sel.Rdata;
-FIR_interp = sel.FIR;
 HB_interp = sel.HB1 * sel.HB2 * sel.HB3;
-PLL_mult = sel.PLL_mult;
+converter_rate = data_rate * sel.FIR * HB_interp;
 
-Ph_eq = sel.phEQ;
+if (get(handles.filter_type, 'Value') == 1)
+    % rx
+    channel_factor = 1.4;
 
-wnom = value2Hz(handles, handles.freq_units, str2double(get(handles.Fcutoff, 'String')));
+    % (1.4 * 2 * pi)/log(2) rounded to be the same as what the driver uses
+    rounded_factor = 12.6906;
+else
+    % tx
+    channel_factor = 1.6;
 
-Use_9361 = get(handles.Use_FIR, 'Value');
+    % (1.6 * 2 * pi)/log(2) rounded to be the same as what the driver uses
+    rounded_factor = 14.5036;
+end
 
+% determine the RF bandwidth from the current caldiv
+pll_rate = get_pll_rate(handles);
+% used to reproduce the divider value (caldiv) we expect on the driver
+RFbw_hw = round(((pll_rate - 1)/(sel.caldiv - 1))*(2/rounded_factor));
+% full precision RFbw
+RFbw = round(((pll_rate - 1)/(sel.caldiv - 1))*(2/(channel_factor*(2*pi)/log(2))));
+
+% filter design input structure
+filter_input.Fstop = sel.Fstop;
+filter_input.Fpass = sel.Fpass;
+filter_input.dBripple = sel.dBripple;
+filter_input.dBstop = sel.dBstop;
+filter_input.dBstop_FIR = sel.FIRdBmin;
+filter_input.data_rate = sel.Rdata;
+filter_input.FIR_interp = sel.FIR;
+filter_input.HB_interp = HB_interp;
+filter_input.HB1 = sel.HB1;
+filter_input.HB2 = sel.HB2;
+filter_input.HB3 = sel.HB3;
+filter_input.PLL_mult = sel.PLL_mult;
+filter_input.phEQ = sel.phEQ;
+filter_input.wnom = value2Hz(handles, handles.freq_units, str2double(get(handles.Fcutoff, 'String')));
+filter_input.int_FIR = get(handles.Use_FIR, 'Value');
+filter_input.RFbw = RFbw;
+filter_input.converter_rate = converter_rate;
 
 plot_buttons_off(handles);
 
 % make sure things are sane before drawing
-if fpass >= fstop || fpass <= 0 || fstop <= 0
+if sel.Fpass >= sel.Fstop || sel.Fpass <= 0 || sel.Fstop <= 0
     display_default_image(hObject);
     plot_buttons_off(handles);
     handles.active_plot = 0;
@@ -913,54 +954,60 @@ set(gcf,'Pointer','watch');
 drawnow;
 
 if (get(handles.filter_type, 'Value') == 1)
-    [rfirtaps,rxFilters,Hanalog,dBripple_actual,dBstop_max,delay,webinar,tohw,b1,a1,b2,a2] = internal_designrxfilters9361_sinc(...
-        data_rate, FIR_interp, HB_interp, PLL_mult, fpass, fstop, apass, astop, dbstop_min, Ph_eq, Use_9361, wnom);
-    handles.filters = rxFilters;
-    handles.rfirtaps = rfirtaps;
-    handles.grpdelaycal = cascade(Hanalog,rxFilters);
+    filter_input.clkPLL = filter_input.converter_rate * filter_input.PLL_mult;
+    filter_result = internal_designrxfilters9361_sinc(filter_input);
 
-    handles.rx_BW = RFbw;
-    handles.rx_PLL = value2Hz(handles, handles.freq_units, str2double(get(handles.Pll_rate, 'String')));
-    handles.rx_HB3 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB3_rate, 'String')));
-    handles.rx_HB2 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB2_rate, 'String')));
-    handles.rx_HB1 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB1_rate, 'String')));
-    handles.rx_FIR = value2Hz(handles, handles.freq_units, str2double(get(handles.FIR_rate, 'String')));
-    handles.rx_DATA = value2Hz(handles, handles.freq_units, str2double(get(handles.data_clk, 'String')));
+    handles.filters = filter_result.rxFilters;
+    handles.rfirtaps = filter_result.rfirtaps;
+    handles.analogfilter = filter_result.Hanalog;
+    handles.grpdelaycal = cascade(filter_result.Hanalog, filter_result.rxFilters);
+
+    % values used for saving to a filter file or pushing to the target directly
+    handles.rx.BW = RFbw_hw;
+    handles.rx.PLL = value2Hz(handles, handles.freq_units, str2double(get(handles.Pll_rate, 'String')));
+    handles.rx.HB3 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB3_rate, 'String')));
+    handles.rx.HB2 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB2_rate, 'String')));
+    handles.rx.HB1 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB1_rate, 'String')));
+    handles.rx.FIR = value2Hz(handles, handles.freq_units, str2double(get(handles.FIR_rate, 'String')));
+    handles.rx.DATA = value2Hz(handles, handles.freq_units, str2double(get(handles.data_clk, 'String')));
 else
-    DAC_mult = get(handles.DAC_by2, 'Value');
-    [tfirtaps,txFilters,Hanalog,dBripple_actual,dBstop_max,delay,webinar,tohw,b1,a1,b2,a2] = internal_designtxfilters9361_sinc(...
-        data_rate, FIR_interp, HB_interp, DAC_mult, PLL_mult, fpass, fstop, apass, astop, dbstop_min, Ph_eq, Use_9361, wnom);
-    handles.filters = txFilters;
-    handles.tfirtaps = tfirtaps;
-    handles.grpdelaycal = cascade(txFilters,Hanalog);
+    filter_input.DAC_mult = get(handles.DAC_by2, 'Value');
+    filter_input.clkPLL = filter_input.converter_rate * filter_input.DAC_mult * filter_input.PLL_mult;
+    filter_result = internal_designtxfilters9361_sinc(filter_input);
 
-    handles.tx_BW = RFbw;
-    handles.tx_PLL = value2Hz(handles, handles.freq_units, str2double(get(handles.Pll_rate, 'String')));
-    handles.tx_HB3 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB3_rate, 'String')));
-    handles.tx_HB2 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB2_rate, 'String')));
-    handles.tx_HB1 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB1_rate, 'String')));
-    handles.tx_FIR = value2Hz(handles, handles.freq_units, str2double(get(handles.FIR_rate, 'String')));
-    handles.tx_DATA = value2Hz(handles, handles.freq_units, str2double(get(handles.data_clk, 'String')));
+    handles.filters = filter_result.txFilters;
+    handles.tfirtaps = filter_result.tfirtaps;
+    handles.analogfilter = filter_result.Hanalog;
+    handles.grpdelaycal = cascade(filter_result.txFilters, filter_result.Hanalog);
+
+    % values used for saving to a filter file or pushing to the target directly
+    handles.tx.BW = RFbw_hw;
+    handles.tx.PLL = value2Hz(handles, handles.freq_units, str2double(get(handles.Pll_rate, 'String')));
+    handles.tx.HB3 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB3_rate, 'String')));
+    handles.tx.HB2 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB2_rate, 'String')));
+    handles.tx.HB1 = value2Hz(handles, handles.freq_units, str2double(get(handles.HB1_rate, 'String')));
+    handles.tx.FIR = value2Hz(handles, handles.freq_units, str2double(get(handles.FIR_rate, 'String')));
+    handles.tx.DATA = value2Hz(handles, handles.freq_units, str2double(get(handles.data_clk, 'String')));
 end
-handles.taps_length = tohw.CoefficientSize;
+handles.taps_length = filter_result.tohw.CoefficientSize;
 
-set(gcf,'Pointer',oldpointer);
+set(gcf, 'Pointer', oldpointer);
 
 if get(handles.filter_type, 'Value') == 1
-    handles.rx_int = FIR_interp;
-    handles.rx_gain = tohw.Gain;
+    handles.rx.int = sel.FIR;
+    handles.rx.gain = filter_result.tohw.Gain;
 else
-    handles.tx_int = FIR_interp;
-    handles.tx_gain = tohw.Gain;
+    handles.tx.int = sel.FIR;
+    handles.tx.gain = filter_result.tohw.Gain;
 end
-handles.int = FIR_interp;
+handles.int = sel.FIR;
 
 if (str2double(get(handles.target_delay, 'String'))) == 0
-    set(handles.target_delay, 'String', num2str(delay * 1e9, 4));
+    set(handles.target_delay, 'String', num2str(filter_result.delay * 1e9, 4));
 end
 
-handles.simrfmodel = webinar;
-handles.supportpack = tohw;
+handles.simrfmodel = filter_result.webinar;
+handles.supportpack = filter_result.tohw;
 
 set(handles.FVTool_deeper, 'Visible', 'on');
 set(handles.FVTool_datarate, 'Visible', 'on');
@@ -989,13 +1036,19 @@ set(handles.results_group_delay, 'Visible', 'on');
 set(handles.results_taps, 'String', [num2str(handles.taps_length) ' ']);
 set(handles.RFbw, 'String', num2str(Hz2value(handles, handles.freq_units, RFbw)));
 
-converter_rate = data_rate * FIR_interp * HB_interp;
-
 G = 8192;
 axes(handles.magnitude_plot);
 cla(handles.magnitude_plot);
 
-handles.active_plot = plot(handles.magnitude_plot, linspace(0,data_rate/2,G),mag2db(abs(analogresp('Rx',linspace(0,data_rate/2,G),converter_rate,b1,a1,b2,a2).*freqz(handles.filters,linspace(0,data_rate/2,G),converter_rate))));
+if get(handles.filter_type, 'Value') == 1
+    channel = 'Rx';
+else
+    channel = 'Tx';
+end
+handles.active_plot = plot(handles.magnitude_plot, linspace(0,data_rate/2,G),mag2db(...
+    abs(analogresp(channel,linspace(0,data_rate/2,G),converter_rate,filter_result.b1,filter_result.a1,filter_result.b2,filter_result.a2).*freqz(...
+    handles.filters,linspace(0,data_rate/2,G),converter_rate))));
+
 xlim([0 data_rate/2]);
 ylim([-100 10]);
 zoom_axis(gca);
@@ -1003,21 +1056,21 @@ xlabel('Frequency (MHz)');
 ylabel('Magnitude (dB)');
 
 % plot the mask that we are interested in
-line([fpass fpass], [-(apass/2) -100], 'Color', 'Red');
-line([0 fpass], [-(apass/2) -(apass/2)], 'Color', 'Red');
-line([0 fstop], [apass/2 apass/2], 'Color', 'Red');
-line([fstop fstop], [apass/2 -astop], 'Color', 'Red');
-line([fstop data_rate], [-astop -astop], 'Color', 'Red');
+line([sel.Fpass sel.Fpass], [-(sel.dBripple/2) -100], 'Color', 'Red');
+line([0 sel.Fpass], [-(sel.dBripple/2) -(sel.dBripple/2)], 'Color', 'Red');
+line([0 sel.Fstop], [sel.dBripple/2 sel.dBripple/2], 'Color', 'Red');
+line([sel.Fstop sel.Fstop], [sel.dBripple/2 -sel.dBstop], 'Color', 'Red');
+line([sel.Fstop data_rate], [-sel.dBstop -sel.dBstop], 'Color', 'Red');
 
 % add the quantitative values about actual passband, stopband, and group
 % delay
 [gd,~] = grpdelay(handles.grpdelaycal,1024);
-I = round(fpass/(converter_rate/2)*1024);
+I = round(sel.Fpass/(converter_rate/2)*1024);
 gd2 = gd(1:I).*(1/converter_rate);
 gd_diff = max(gd2)-min(gd2);
 
-set(handles.results_Astop, 'String', [num2str(dBstop_max) ' dB ']);
-set(handles.results_Apass, 'String', [num2str(dBripple_actual) ' dB ']);
+set(handles.results_Astop, 'String', [num2str(filter_result.dBstop_actual) ' dB ']);
+set(handles.results_Apass, 'String', [num2str(filter_result.dBripple_actual) ' dB ']);
 set(handles.results_group_delay, 'String', [num2str(gd_diff * 1e9, 3) ' ns ']);
 
 if get(handles.filter_type, 'Value') == 1
@@ -1049,7 +1102,6 @@ options = load(filename);
 Tx = fieldnames(options.ad9361_settings.tx);
 Rx = fieldnames(options.ad9361_settings.rx);
 
-
 Tx_numRows = size(Tx, 1);
 Rx_numRows = size(Rx, 1);
 
@@ -1060,14 +1112,14 @@ needle = deblank(needle{1});
 
 for matchRx = 1:Rx_numRows;
     match = Rx{matchRx, end};
-    if strmatch(needle, match)
+    if find(strncmp(needle, match, length(needle)))
         break
     end
 end
 
 for matchTx = 1:Tx_numRows;
     match = Tx{matchTx, end};
-    if strmatch(needle, match)
+    if find(strncmp(needle, match, length(needle)))
         break
     end
 end
@@ -1275,7 +1327,6 @@ else
     OK = 0;
 end
 
-
 % Check the PLL, based on rx values...
 set(handles.Pll_rate, 'String', num2str(handles.input_rx.Rdata / 1e6 * ...
     handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult));
@@ -1286,7 +1337,13 @@ if (pll < handles.MAX_BBPLL_FREQ) && (pll > handles.MIN_BBPLL_FREQ)
 else
     set(handles.Pll_rate, 'ForegroundColor', [1 0 0]);
     if OK
-        warn = 'PLL rate out of bounds';
+        if (pll > handles.MAX_BBPLL_FREQ)
+            max_bbpll = num2str(Hz2value(handles, 3, handles.MAX_BBPLL_FREQ));
+            warn = sprintf('PLL rate above maximum (%s %s)', max_bbpll, 'MHz');
+        else
+            min_bbpll = num2str(Hz2value(handles, 3, handles.MIN_BBPLL_FREQ));
+            warn = sprintf('PLL rate below minimum (%s %s)', min_bbpll, 'MHz');
+        end
     end
     OK = 0;
 end
@@ -1338,7 +1395,7 @@ choices = cell(1, Tx_numRows);
 
 for rowTx = 1:Tx_numRows;
     needle = Tx{rowTx, end};
-    if strmatch(needle, Rx)
+    if find(strncmp(needle, Rx, length(needle)))
         choices{rowTx} = strcat(needle, ' (Rx & Tx)');
     else
         choices{rowTx} = strcat(needle, ' (Tx only)');
@@ -1346,7 +1403,7 @@ for rowTx = 1:Tx_numRows;
 end
 for rowRx = 1:Rx_numRows;
     needle = Rx{rowRx, end};
-    if ~ strmatch(needle, choices)
+    if ~ find(strncmp(needle, choices, length(needle)))
         rowTx =+ 1;
         choices{rowTx} = strcat(needle, ' (Rx only)');
     end
@@ -1366,7 +1423,6 @@ guidata(hObject, handles);
 % converter                    11.2 |640          5.58|320
 % DAC_by2 [1 2]                                   11.2|640
 % PLL = [1 2 4 8 16 32 64];     715|1430          715|1430
-
 
 
 % --------------------------------------------------------------------
@@ -1413,10 +1469,7 @@ ylabel('Mag (dB)');
 set(gca,'YTickLabel',{});
 ylim([-100 max_y]);
 
-
-
 switch get(get(handles.Response_Type, 'SelectedObject'), 'String')
-
     case 'Lowpass'
         % Low part of the low pass
         line([0 Fpass], [-ripple -ripple], 'Color', 'Black');
@@ -1461,6 +1514,7 @@ switch get(get(handles.Response_Type, 'SelectedObject'), 'String')
         for i = 1:4
             set(handles.arrows{i}, 'Parent', plot);
         end
+
     case 'Root Raised Cosine'
         % Pass band
         line([0 Fpass], [-ripple -ripple], 'Color', 'Black');
@@ -1548,7 +1602,6 @@ switch get(get(handles.Response_Type, 'SelectedObject'), 'String')
         line([max_x-10 max_x-10], [0 ripple], 'Color', 'Black');
         text(0, -108, '0');
         text(max_x - 15, -108, 'Fs_{/2}');
-
 end
 
 guidata(hObject, handles);
@@ -2122,24 +2175,27 @@ astop = sel.dBstop;
 
 if (get(handles.filter_type, 'Value') == 1)
     Hmiddle = handles.filters.Stage(1);
+    Hmiddle = cascade(handles.analogfilter,Hmiddle);
     Hmd = handles.filters.Stage(2);
     tmp = 'Rx';
 else
     Hmiddle = handles.filters.Stage(2);
+    Hmiddle = cascade(Hmiddle,handles.analogfilter);
     Hmd = handles.filters.Stage(1);
     tmp = 'Tx';
 end
+Hmiddle = cascade(handles.analogfilter,Hmiddle);
 
 str = sprintf('%s Filter\nFpass = %g MHz; Fstop = %g MHz\nApass = %g dB; Astop = %g dB', tmp, fpass/1e6, fstop/1e6, apass, astop);
 
-hfvt3 = fvtool(Hmiddle,handles.filters,...
+hfvt3 = fvtool(handles.analogfilter,Hmiddle,handles.grpdelaycal,...
     'FrequencyRange','Specify freq. vector', ...
     'FrequencyVector',linspace(0,data_rate/2,2048),'Fs',...
     converter_rate, ...
     'ShowReference','off','Color','White');
 set(hfvt3, 'Color', [1 1 1]);
 set(hfvt3.CurrentAxes, 'YLim', [-100 20]);
-legend(hfvt3, 'Half Band','HB + FIR');
+legend(hfvt3, 'Analog','Analog + Half Band','Analog + HB + FIR');
 text(0.5, 10,...
     str,...
     'BackgroundColor','white',...
@@ -2153,6 +2209,10 @@ hfvt4 = fvtool(...
     'ShowReference','off','Color','White');
 set(hfvt4.CurrentAxes, 'YLim', [-100 20]);
 legend(hfvt4, 'FIR Filter');
+
+% add the quantitative values about FIR magnitude
+[h,~] = freqz(Hmd,1024);
+maxmag = max(20*log10(abs(h)));
 
 [gd,~] = grpdelay(handles.grpdelaycal,1024);
 I = round(fpass/(converter_rate/2)*1024);
@@ -2273,45 +2333,6 @@ dirty(hObject, handles);
 guidata(hObject, handles);
 data2gui(hObject, handles);
 
-
-% --------------------------------------------------------------------
-function save_filter2workspace_ClickedCallback(hObject, eventdata, handles)
-% hObject    handle to save_filter2workspace (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-filter.Rdata = get_data_rate(handles)/1e6;
-filter.Fpass = value2Hz(handles, handles.freq_units, str2double(get(handles.Fpass, 'String'))) / 1e6;
-filter.Fstop = value2Hz(handles, handles.freq_units, str2double(get(handles.Fstop, 'String'))) / 1e6;
-filter.FIR_interp = sel.FIR;
-filter.HB_interp = sel.HB1 * sel.HB2 * sel.HB3;
-filter.PLL_mult = converter_interp(handles);
-filter.dBripple = str2double(get(handles.Apass, 'String'));
-filter.dBstop = str2double(get(handles.Astop, 'String'));
-filter.Pheq = -1;
-filter.channels = 3;
-filter.internal_FIR = get(handles.Use_FIR, 'Value');
-
-if get(handles.Advanced_options, 'Value')
-    filter.caldiv = get_caldiv(handles);
-    filter.FIR_Astop = str2double(get(handles.FIR_Astop, 'String'));
-
-    if get(handles.phase_eq, 'Value')
-        filter.Phase_EQ = str2double(get(handles.target_delay, 'String'));
-    end
-else
-    filter.FIR_Astop = 0;
-end
-
-name = inputdlg('Save filter as', 'AD9361 Filter Designer');
-
-if get(handles.filter_type, 'Value') == 1
-    ad9361.rx.(name{1}) = filter;
-else
-    filter.DAC_div = get(handles.DAC_by2, 'Value');
-    ad9361.tx.(name{1}) = filter;
-end
-assignin('base', 'AD9361', ad9361);
-
 % --- Executes on button press in connect2target.
 function connect2target_Callback(hObject, eventdata, handles)
 % hObject    handle to connect2target (see GCBO)
@@ -2377,7 +2398,6 @@ function design_filter_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 create_filter(hObject, handles);
-
 
 
 function Port_num_Callback(hObject, eventdata, handles)
@@ -2742,3 +2762,5 @@ function results_Apass_CreateFcn(hObject, eventdata, handles)
 % hObject    handle to results_Apass (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
+
+% vim: set et sw=4 ts=4 ft=matlab:
