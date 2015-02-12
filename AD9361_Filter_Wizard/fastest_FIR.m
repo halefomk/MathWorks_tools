@@ -1,4 +1,4 @@
-%  Copyright 2014(c) Analog Devices, Inc.
+%  Copyright 2015(c) Analog Devices, Inc.
 %
 %  All rights reserved.
 %
@@ -32,37 +32,10 @@
 %  STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 %  THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-function [hb1, hb2, hb3, dec3] = setrxhb9361(N)
-
-if N > 12 || N < 1
-    error('set9361HB:wrongerror', 'Decimation factor must be <= 12')
+function rate = fastest_FIR(rates, max, min, mult)
+for i = 1:length(rates)
+    if max >= mult * rates(i) && min <= mult * rates(i)
+        break;
+    end
 end
-
-if rem(N,3)== 0
-    % divisible by 3
-    dec3 = 3;
-    N = N/3;
-else
-    dec3 = 1;
-end
-
-switch N
-    case 1
-        hb1 = 1;
-        hb2 = 1;
-        hb3 = 1;
-    case 2
-        hb1 = 2;
-        hb2 = 1;
-        hb3 = 1;
-    case 4
-        hb1 = 2;
-        hb2 = 2;
-        hb3 = 1;
-    case 8
-        hb1 = 2;
-        hb2 = 2;
-        hb3 = 2;
-    otherwise
-        error('set9361HB:wrongerror', 'Decimation factor is wrong')
-end
+rate = rates(i);

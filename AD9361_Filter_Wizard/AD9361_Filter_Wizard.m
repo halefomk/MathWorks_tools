@@ -161,13 +161,15 @@ for i = 1:2:length(varargin)
         set(handles.save2workspace, 'String', varargin{i + 1});
     elseif strcmpi(varargin{i}, 'DefaultRxVals')
         % 'DefaultRxVals'     'structure (in Hz)'
-        handles.input_rx  = cook_input(varargin{i +1});
-        handles.input_rx.RxTx = 'Rx';
+        input = varargin{i + 1};
+        input.RxTx = 'Rx';
+        handles.input_rx = cook_input(input);
         new = 1;
     elseif strcmpi(varargin{i}, 'DefaultTxVals')
         % 'DefaultTxVals'     'structure (in Hz)'
-        handles.input_tx = cook_input(varargin{i +1});
-        handles.input_tx.RxTx = 'Tx';
+        input = varargin{i + 1};
+        input.RxTx = 'Tx';
+        handles.input_tx = cook_input(input);
         new = 1;
     elseif strcmpi(varargin{i}, 'ApplyCallback')
         handles.applycallback = str2func(varargin{i + 1});
@@ -177,6 +179,69 @@ for i = 1:2:length(varargin)
         handles.callbackObj = varargin{i + 1};
     else
         error('Unknown input to function');
+    end
+end
+
+% sanity check the DAC divider value and alter it if necessary, note that if
+% it's altered then the PLL and calibration dividers must be updated as well
+if isfield(handles, 'input_tx') && isfield(handles, 'input_rx')
+    if (handles.input_rx.PLL_rate ~= handles.input_tx.PLL_rate)
+        rhb1 = handles.input_tx.HB1;
+        rhb2 = handles.input_tx.HB2;
+        if handles.input_tx.HB3 == 3
+            rhb3 = 3;
+        elseif handles.input_tx.HB3 == 2
+            rhb3 = 2;
+        else
+            rhb3 = 1;
+        end
+        handles.input_rx.HB1 = rhb1;
+        handles.input_rx.HB2 = rhb2;
+        handles.input_rx.HB3 = rhb3;
+
+        ADC_rate = handles.input_rx.Rdata * handles.input_rx.FIR * ...
+            handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3;
+        DAC_rate = handles.input_tx.Rdata * handles.input_tx.FIR * ...
+            handles.input_tx.HB1 * handles.input_tx.HB2 * handles.input_tx.HB3;
+        DAC_div = ADC_rate / DAC_rate;
+        if ~(handles.input_tx.DAC_div == DAC_div)
+            if (DAC_div == 1 || DAC_div == 2)
+                handles.input_tx.DAC_div = DAC_div;
+                handles.input_tx.PLL_mult = handles.input_rx.PLL_mult;
+                filter_type = get(handles.filter_type, 'Value');
+                set(handles.filter_type, 'Value', 0);
+                handles.input_tx.caldiv = default_caldiv(handles);
+                set(handles.filter_type, 'Value', filter_type);
+            end
+        end
+
+        handles.input_rx.PLL_mult = fastest_FIR([64 32 16 8 4 2 1], handles.MAX_BBPLL_FREQ, handles.MIN_BBPLL_FREQ, ...
+            handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.DAC_div);
+        handles.input_tx.PLL_mult = handles.input_rx.PLL_mult;
+
+        if handles.input_rx.PLL_mult > 64
+            X = ['Date rate = ', num2str(tohwTx.TXSAMP), ' Hz. Tx BBPLL is too high for Rx to match.'];
+            disp(X);
+        end
+
+        handles.input_rx.PLL_rate = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
+            handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
+    else
+        ADC_rate = handles.input_rx.Rdata * handles.input_rx.FIR * ...
+            handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3;
+        DAC_rate = handles.input_tx.Rdata * handles.input_tx.FIR * ...
+            handles.input_tx.HB1 * handles.input_tx.HB2 * handles.input_tx.HB3;
+        DAC_div = ADC_rate / DAC_rate;
+        if ~(handles.input_tx.DAC_div == DAC_div)
+            if (DAC_div == 1 || DAC_div == 2)
+                handles.input_tx.DAC_div = DAC_div;
+                handles.input_tx.PLL_mult = handles.input_rx.PLL_mult;
+                filter_type = get(handles.filter_type, 'Value');
+                set(handles.filter_type, 'Value', 0);
+                handles.input_tx.caldiv = default_caldiv(handles);
+                set(handles.filter_type, 'Value', filter_type);
+            end
+        end
     end
 end
 
@@ -784,7 +849,7 @@ function FVTool_deeper_Callback(hObject, eventdata, handles)
 sel = get_current_rxtx(handles);
 
 data_rate = sel.Rdata;
-converter_rate = get_converter_rate(handles);
+converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3;
 fstop = sel.Fstop;
 fpass = sel.Fpass;
 
@@ -795,27 +860,24 @@ F = linspace(0,converter_rate/2,2048);
 if (get(handles.filter_type, 'Value') == 1)
     Hmiddle = handles.filters.Stage(1);
     Hmiddle = cascade(handles.analogfilter,Hmiddle);
-    Hmd = handles.filters.Stage(2);
     tmp = 'Rx';
     A = sinc(F/Fs).^3;
 else
     Hmiddle = handles.filters.Stage(2);
     Hmiddle = cascade(Hmiddle,handles.analogfilter);
-    Hmd = handles.filters.Stage(1);
     tmp = 'Tx';
     A = sinc(F/Fs);
 end
 
 d = fdesign.arbmag('N,F,A',N,F,A,Fs);
 Hcon = design(d,'SystemObject',false);
-Hall = cascade(handles.grpdelaycal,Hcon);
 
 apass = str2double(get(handles.Apass, 'String'));
 astop = str2double(get(handles.Astop, 'String'));
 
 str = sprintf('%s Filter\nFpass = %g MHz; Fstop = %g MHz\nApass = %g dB; Astop = %g dB', tmp, fpass/1e6, fstop/1e6, apass, astop);
 
-hfvt1 = fvtool(Hcon,handles.analogfilter,Hmiddle,Hall,...
+hfvt1 = fvtool(Hcon,handles.analogfilter,Hmiddle,handles.grpdelaycal,...
     'FrequencyRange','Specify freq. vector', ...
     'FrequencyVector',linspace(0,converter_rate/2,2048),'Fs',...
     converter_rate, ...
@@ -888,15 +950,10 @@ end
 set(handles.design_filter, 'Enable', 'off');
 
 sel = get_current_rxtx(handles);
-converter_rate = get_converter_rate(handles);
+converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3;
 
 % determine the RF bandwidth from the current caldiv
-pll_rate = get_pll_rate(handles);
-if get(handles.Advanced_options, 'Value') == 0
-    caldiv = default_caldiv(handles);
-else
-    caldiv = get_caldiv(handles);
-end
+caldiv = sel.caldiv;
 RFbw = get_rfbw(handles, caldiv);
 RFbw_hw = get_rfbw_hw(handles, caldiv);
 
@@ -945,6 +1002,7 @@ filter_input.HB3 = sel.HB3;
 filter_input.PLL_mult = sel.PLL_mult;
 filter_input.phEQ = sel.phEQ;
 filter_input.wnom = value2Hz(handles, handles.freq_units, str2double(get(handles.Fcutoff, 'String')));
+filter_input.caldiv = caldiv;
 filter_input.int_FIR = get(handles.Use_FIR, 'Value');
 filter_input.RFbw = RFbw;
 filter_input.converter_rate = converter_rate;
@@ -1324,7 +1382,7 @@ set(handles.DAC_by2, 'Value', handles.input_tx.DAC_div);
 set(handles.ADC_clk, 'String', num2str(handles.input_rx.Rdata / 1e6 * handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3));
 set(handles.DAC_clk, 'String', num2str(handles.input_tx.Rdata / 1e6 * handles.input_tx.FIR * handles.input_tx.HB1 * handles.input_tx.HB2 * handles.input_tx.HB3));
 
-% Make sure they are the same...
+% Make sure Rx and Tx PLL rates are equal
 if (handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3) == ...
         (handles.input_tx.FIR * handles.input_tx.HB1 * handles.input_tx.HB2 * handles.input_tx.HB3 * handles.input_tx.DAC_div)
     set(handles.ADC_clk, 'ForegroundColor', [0 0 0]);
@@ -1339,10 +1397,9 @@ else
     OK = 0;
 end
 
-% Check the PLL, based on rx values...
-set(handles.Pll_rate, 'String', num2str(handles.input_rx.Rdata / 1e6 * ...
-    handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult));
-pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
+% Make sure the PLL rate is within the allowed bounds
+pll = get_pll_rate(handles);
+set(handles.Pll_rate, 'String', num2str(pll / 1e6));
 
 if (pll <= handles.MAX_BBPLL_FREQ) && (pll >= handles.MIN_BBPLL_FREQ)
     set(handles.Pll_rate, 'ForegroundColor', [0 0 0]);
@@ -2067,28 +2124,19 @@ data_clk = sel.Rdata;
 function caldiv = default_caldiv(handles)
 if (get(handles.filter_type, 'Value') == 1)
     wnom = 1.4 * handles.input_rx.Fstop;  % Rx
-    pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
-        handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
 else
     wnom = 1.6 * handles.input_tx.Fstop;  % Tx
-    pll = handles.input_tx.Rdata * handles.input_tx.FIR * handles.input_tx.HB1 * ...
-        handles.input_tx.HB2 * handles.input_tx.HB3 * handles.input_tx.DAC_div * ...
-        handles.input_tx.PLL_mult;
 end
 
+pll = get_pll_rate(handles);
 div = ceil((pll/wnom)*(log(2)/(2*pi)));
 caldiv = min(max(div,1),511);
 
 function caldiv = get_caldiv(handles)
 if (get(handles.filter_type, 'Value') == 1)
     wnom = 1.4 * handles.input_rx.Fstop;  % Rx
-    pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
-        handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
 else
     wnom = 1.6 * handles.input_rx.Fstop;  % Tx
-    pll = handles.input_tx.Rdata * handles.input_tx.FIR * handles.input_tx.HB1 * ...
-        handles.input_tx.HB2 * handles.input_tx.HB3 * handles.input_tx.DAC_div * ...
-        handles.input_tx.PLL_mult;
 end
 
 Fcutoff = str2double(get(handles.Fcutoff, 'String'));
@@ -2097,6 +2145,7 @@ if Fcutoff
     wnom = value2Hz(handles, handles.freq_units, Fcutoff);
 end
 
+pll = get_pll_rate(handles);
 div = ceil((pll/wnom)*(log(2)/(2*pi)));
 caldiv = min(max(div,1),511);
 
@@ -2105,17 +2154,15 @@ wc = (get_pll_rate(handles) / value)*(log(2)/(2*pi));
 set(handles.Fcutoff, 'String', num2str(Hz2value(handles, handles.freq_units, wc)));
 
 function pll = get_pll_rate(handles)
-pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
-    handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
-
-function converter_rate = get_converter_rate(handles)
-sel = get_current_rxtx(handles);
 if (get(handles.filter_type, 'Value') == 1)
     % Rx
-    converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3 * sel.DAC_div;
+    pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
+        handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
 else
     % Tx
-    converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3;
+    pll = handles.input_tx.Rdata * handles.input_tx.FIR * handles.input_tx.HB1 * ...
+        handles.input_tx.HB2 * handles.input_tx.HB3 * handles.input_tx.DAC_div * ...
+        handles.input_tx.PLL_mult;
 end
 
 % calculate a channel's complex bandwidth related to the calibration divider value
@@ -2223,7 +2270,7 @@ function FVTool_datarate_Callback(hObject, eventdata, handles)
 sel = get_current_rxtx(handles);
 
 data_rate = sel.Rdata;
-converter_rate = get_converter_rate(handles);
+converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3;
 fstop = sel.Fstop;
 fpass = sel.Fpass;
 apass = sel.dBripple;
@@ -2240,7 +2287,6 @@ else
     Hmd = handles.filters.Stage(1);
     tmp = 'Tx';
 end
-Hmiddle = cascade(handles.analogfilter,Hmiddle);
 
 str = sprintf('%s Filter\nFpass = %g MHz; Fstop = %g MHz\nApass = %g dB; Astop = %g dB', tmp, fpass/1e6, fstop/1e6, apass, astop);
 
@@ -2811,7 +2857,6 @@ function Fcenter_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-
 
 % --- Executes during object creation, after setting all properties.
 function results_Apass_CreateFcn(hObject, eventdata, handles)

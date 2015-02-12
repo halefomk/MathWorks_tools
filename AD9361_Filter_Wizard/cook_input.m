@@ -108,7 +108,6 @@ end
 
 if strcmp(input.RxTx, 'Rx')
     max_HB = max.MAX_RX;
-    input.DAC_div = 1;
 else
     max_HB = max.MAX_TX;
 end
@@ -149,7 +148,9 @@ if ~isfield(input, 'FIR')
         input.HB1 = fastest_FIR([2 1], max_HB.HB1, 0, input.Rdata * input.FIR);
         input.HB2 = fastest_FIR([2 1], max_HB.HB2, 0, input.Rdata * input.FIR * input.HB1);
         input.HB3 = fastest_FIR([3 2 1], max_HB.HB3, 0, input.Rdata * input.FIR * input.HB1 * input.HB2);
-        if strcmp(input.RxTx, 'Tx')
+        if strcmp(input.RxTx, 'Rx')
+            input.DAC_div = 1;
+        else
             input.DAC_div = 2;
         end
         input.PLL_mult = fastest_FIR([64 32 16 8 4 2 1], max.MAX_BBPLL_FREQ, max.MIN_BBPLL_FREQ, input.Rdata * input.FIR * input.HB1 * input.HB2 * input.HB3 * input.DAC_div);
@@ -165,12 +166,12 @@ if strcmp(input.Type, 'Lowpass')
         % works out to 2560000. Actual number is 2250000
         input.Fpass = input.Rdata / 3;
     end
-    
+
     if ~isfield(input, 'Fstop')
         % Asssume that Fstop is 1.25 Fpass, again close to LTE5
         input.Fstop = input.Fpass * 1.25;
     end
-    
+
     if ~isfield(input, 'Fcenter')
         input.Fcenter = 0;
     end
@@ -178,9 +179,8 @@ elseif strcmp(input.Type, 'Bandpass')
     error('Bandpass is not done yet');
 end
 
-
-%   struct.dBripple = Passband ripple (Apass) in dB (peak to peak)
-%   struct.dBstop   = Cascaded (FIR + HB + Analog) stop band attenuation (in dB)
+% struct.dBripple = Passband ripple (Apass) in dB (peak to peak)
+% struct.dBstop   = Cascaded (FIR + HB + Analog) stop band attenuation (in dB)
 if ~isfield(input, 'dBripple')
     input.dBripple = .5;
 end
@@ -189,14 +189,13 @@ if ~isfield(input, 'dBstop')
     input.dBstop = 80;
 end
 
-
 % Assume no phase equalization
 if ~isfield(input, 'phEQ')
     input.phEQ = -1;
 end
 
 if ~isfield(input, 'caldiv')
-    input.caldiv = 0;
+    input.caldiv = default_caldiv(input);
 end
 
 %Assume no dBmin
@@ -206,10 +205,16 @@ end
 
 cooked = input;
 
-function rate = fastest_FIR(rates, max, min, mult)
-for i = 1:length(rates)
-    if max >= mult * rates(i) && min <= mult * rates(i)
-        break;
-    end
+function caldiv = default_caldiv(input)
+if strcmp(input.RxTx, 'Rx')
+    wnom = 1.4 * input.Fstop; % Rx
+    pll = input.Rdata * input.FIR * input.HB1 * input.HB2 * input.HB3 * ...
+        input.PLL_mult;
+else
+    wnom = 1.6 * input.Fstop; % Tx
+    pll = input.Rdata * input.FIR * input.HB1 * input.HB2 * input.HB3 * ...
+        input.DAC_div * input.PLL_mult;
 end
-rate = rates(i);
+
+div = ceil((pll/wnom)*(log(2)/(2*pi)));
+caldiv = min(max(div,1),511);
