@@ -663,17 +663,16 @@ fprintf(fid, '%s\r\n', strcat('# Generated', 32, datestr(now())));
 fprintf(fid, '# Inputs:\r\n');
 
 sel = get_current_rxtx(handles);
-data_rate = sel.Rdata;
 
 %FIXME
 %converter_rate = get_converter_clk(handles);
 %converter_rate = get_ADC_clk(handles);
 
-%pll_rate = get_pll_rate(handles);
+%pll_rate = get_pll_rate(sel);
 
 %fprintf(fid, '# PLL CLK Frequecy = %f Hz\r\n', pll_rate);
 %fprintf(fid, '# Converter Sample Frequecy = %f Hz\r\n', converter_rate);
-fprintf(fid, '# Data Sample Frequency = %f Hz\r\n', data_rate);
+fprintf(fid, '# Data Sample Frequency = %f Hz\r\n', sel.Rdata);
 if get(handles.phase_eq, 'Value')
     fprintf(fid, '# RX Phase equalization = %f ns\r\n', handles.rx.phEQ);
     fprintf(fid, '# TX Phase equalization = %f ns\r\n', handles.tx.phEQ);
@@ -970,8 +969,8 @@ sel = get_current_rxtx(handles);
 converter_rate = sel.Rdata * sel.FIR * sel.HB1 * sel.HB2 * sel.HB3;
 
 % determine the RF bandwidth from the current caldiv
-RFbw = get_rfbw(handles, sel.caldiv);
-RFbw_hw = get_rfbw_hw(handles, sel.caldiv);
+[RFbw, caldiv] = calculate_rfbw(sel, false);
+[RFbw_hw, ~] = calculate_rfbw(sel, true);
 
 % filter design input structure
 filter_input.Fstop = sel.Fstop;
@@ -988,7 +987,7 @@ filter_input.HB3 = sel.HB3;
 filter_input.PLL_mult = sel.PLL_mult;
 filter_input.phEQ = sel.phEQ;
 filter_input.wnom = value2Hz(handles, handles.freq_units, str2double(get(handles.Fcutoff, 'String')));
-filter_input.caldiv = sel.caldiv;
+filter_input.caldiv = caldiv;
 filter_input.int_FIR = get(handles.Use_FIR, 'Value');
 filter_input.RFbw = RFbw;
 filter_input.converter_rate = converter_rate;
@@ -1317,10 +1316,11 @@ if sel.caldiv && sel.caldiv ~= default_caldiv(handles)
     show_advanced(handles);
     set_caldiv(handles, sel.caldiv);
 end
+[RFbw, ~] = calculate_rfbw(sel, false);
 
 set(handles.Fpass, 'String', num2str(Hz2value(handles, handles.freq_units, sel.Fpass)));
 set(handles.Fstop, 'String', num2str(Hz2value(handles, handles.freq_units, sel.Fstop)));
-set(handles.RFbw, 'String', num2str(Hz2value(handles, handles.freq_units, get_rfbw(handles, sel.caldiv))));
+set(handles.RFbw, 'String', num2str(Hz2value(handles, handles.freq_units, RFbw)));
 
 set(handles.Fcenter, 'String', num2str(Hz2value(handles, handles.freq_units, sel.Fcenter)));
 
@@ -1463,7 +1463,7 @@ else
 end
 
 % Make sure the PLL rate is within the allowed bounds
-pll = get_pll_rate(handles);
+pll = get_pll_rate(get_current_rxtx(handles));
 set(handles.Pll_rate, 'String', num2str(pll / 1e6));
 
 if (pll <= handles.MAX_BBPLL_FREQ) && (pll >= handles.MIN_BBPLL_FREQ)
@@ -2189,7 +2189,7 @@ else
     wnom = 1.6 * handles.input_tx.Fstop;  % Tx
 end
 
-pll = get_pll_rate(handles);
+pll = get_pll_rate(get_current_rxtx(handles));
 div = ceil((pll/wnom)*(log(2)/(2*pi)));
 caldiv = min(max(div,1),511);
 
@@ -2206,98 +2206,13 @@ if Fcutoff
     wnom = value2Hz(handles, handles.freq_units, Fcutoff);
 end
 
-pll = get_pll_rate(handles);
+pll = get_pll_rate(get_current_rxtx(handles));
 div = ceil((pll/wnom)*(log(2)/(2*pi)));
 caldiv = min(max(div,1),511);
 
 function set_caldiv(handles, value)
-wc = (get_pll_rate(handles) / value)*(log(2)/(2*pi));
+wc = (get_pll_rate(get_current_rxtx(handles)) / value)*(log(2)/(2*pi));
 set(handles.Fcutoff, 'String', num2str(Hz2value(handles, handles.freq_units, wc)));
-
-function pll = get_pll_rate(handles)
-if (get(handles.filter_type, 'Value') == 1)
-    % Rx
-    pll = handles.input_rx.Rdata * handles.input_rx.FIR * handles.input_rx.HB1 * ...
-        handles.input_rx.HB2 * handles.input_rx.HB3 * handles.input_rx.PLL_mult;
-else
-    % Tx
-    pll = handles.input_tx.Rdata * handles.input_tx.FIR * handles.input_tx.HB1 * ...
-        handles.input_tx.HB2 * handles.input_tx.HB3 * handles.input_tx.DAC_div * ...
-        handles.input_tx.PLL_mult;
-end
-
-% calculate a channel's complex bandwidth related to the calibration divider value
-function rfbw = calculate_rfbw(handles, caldiv, hw)
-if (get(handles.filter_type, 'Value') == 1)
-    % Rx
-    channel_factor = 1.4;
-    % (1.4 * 2 * pi)/log(2) rounded to the same precision the driver uses
-    rounded_factor = 12.6906;
-else
-    % Tx
-    channel_factor = 1.6;
-    % (1.6 * 2 * pi)/log(2) rounded to the same precision the driver uses
-    rounded_factor = 14.5036;
-end
-
-sel = get_current_rxtx(handles);
-pll_rate = get_pll_rate(handles);
-
-if hw
-    % avoid divide by zero on boundary case
-    if caldiv == 1
-        caldiv = 1 + eps;
-    end
-    % used to reproduce the divider value (caldiv) we expect on the driver
-    rfbw = uint32(fix(((pll_rate - 1)/(caldiv - 1))*(2/rounded_factor)));
-else
-    % full precision RF bandwidth
-    rfbw = round((pll_rate/caldiv)*(2/(channel_factor*(2*pi)/log(2))));
-end
-
-% min/max possible values for the RF bandwidth (2x baseband bandwidth) from the
-% reference manual (values are in Hz since RFbw is in Hz)
-if (get(handles.filter_type, 'Value') == 1)
-    % Rx: 0.4 MHz <= RF bandwidth <= 56 MHz
-    min_rfbw = 400000;
-    max_rfbw = 56000000;
-else
-    % Tx: 1.25 MHz <= RF bandwidth <= 40 MHz
-    min_rfbw = 1250000;
-    max_rfbw = 40000000;
-end
-
-% If the RF bandwidth is outside the range of acceptable values we modify
-% the divider value until it falls into an acceptable range.
-while (rfbw < min_rfbw) || (rfbw > max_rfbw)
-    if (rfbw < min_rfbw)
-        caldiv = caldiv - 1;
-    else
-        caldiv = caldiv + 1;
-    end
-
-    if (caldiv < 1) || (caldiv > 511)
-        msgbox(sprintf('Calibration divider out of bounds (1 - 511): %i', caldiv), 'Error', 'error');
-        return;
-    end
-
-    if get(handles.filter_type, 'Value') == 1
-        handles.input_rx.caldiv = caldiv;
-    else
-        handles.input_tx.caldiv = caldiv;
-    end
-
-    rfbw = calculate_rfbw(handles, caldiv, hw);
-end
-
-% calculate a channel's complex bandwidth that matches 32 bit integer precision
-% on the driver
-function rfbw_hw = get_rfbw_hw(handles, caldiv)
-    rfbw_hw = calculate_rfbw(handles, caldiv, true);
-
-% calculate a channel's full precision complex bandwidth
-function rfbw = get_rfbw(handles, caldiv)
-    rfbw = calculate_rfbw(handles, caldiv, false);
 
 function Fcutoff_Callback(hObject, eventdata, handles)
 % hObject    handle to Fcutoff (see GCBO)
