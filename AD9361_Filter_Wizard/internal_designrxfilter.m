@@ -35,7 +35,7 @@
 % Inputs option 1 (structure containing the following fields)
 % ============================================
 % data_rate  = Output sample data rate (in Hz)
-% FIR_interp = FIR decimation factor
+% FIR = FIR decimation factor
 % HB_interp  = half band filters decimation factor
 % PLL_mult   = PLL multiplication
 % Fpass      = passband frequency (in Hz)
@@ -227,7 +227,7 @@ end
 
 % Design the PROG RX FIR
 G = 16384;
-clkRFIR = input.data_rate*input.FIR_interp;
+clkRFIR = input.data_rate*input.FIR;
 Gpass = floor(G*input.Fpass/clkRFIR);
 Gstop=ceil(G*input.Fstop/clkRFIR);
 Gpass = min(Gpass,Gstop-1);
@@ -326,7 +326,7 @@ while (1)
     end
     tap_store(i,1:M)=ccoef+scoef;
 
-    Hmd = mfilt.firdecim(input.FIR_interp,tap_store(i,1:M));
+    Hmd = mfilt.firdecim(input.FIR,tap_store(i,1:M));
     if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
         set(Hmd,'arithmetic','fixed');
         Hmd.InputWordLength = 16;
@@ -365,7 +365,7 @@ while (1)
     end
 end
 
-Hmd = mfilt.firdecim(input.FIR_interp,h);
+Hmd = mfilt.firdecim(input.FIR,h);
 if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
     set(Hmd,'arithmetic','fixed');
     Hmd.InputWordLength = 16;
@@ -406,7 +406,7 @@ if length(rfirtaps) < 128
 end
 
 webinar.Fout = input.data_rate;
-webinar.FIR_interp = input.FIR_interp;
+webinar.FIR_interp = input.FIR;
 webinar.HB_interp = input.HB_interp;
 webinar.PLL_mult = input.PLL_mult;
 webinar.Fpass = input.Fpass;
@@ -425,14 +425,14 @@ webinar.Hmd_rx = Hmd;
 webinar.enable_rx = enables;
 
 tohw.RXSAMP = input.data_rate;
-tohw.RF = input.data_rate * input.FIR_interp;
+tohw.RF = input.data_rate * input.FIR;
 tohw.R1 = tohw.RF * input.HB1;
 tohw.R2 = tohw.R1 * input.HB2;
 tohw.ADC = input.converter_rate;
 tohw.BBPLL = input.clkPLL;
 tohw.Coefficient = rfirtaps;
 tohw.CoefficientSize = length(h);
-tohw.Decimation = input.FIR_interp;
+tohw.Decimation = input.FIR;
 tohw.Gain = gain;
 tohw.RFBandwidth = input.RFbw;
 

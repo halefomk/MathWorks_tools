@@ -35,7 +35,7 @@
 % Inputs option 1 (structure containing the following fields)
 % ============================================
 % data_rate  = Input sample data rate (in Hz)
-% FIR_interp = FIR interpolation factor
+% FIR = FIR interpolation factor
 % HB_interp  = half band filters interpolation factor
 % DAC_mult   = DAC to ADC ratio
 % PLL_mult   = PLL multiplication
@@ -227,7 +227,7 @@ end
 
 % Design the PROG TX FIR
 G = 16384;
-clkTFIR = input.data_rate*input.FIR_interp;
+clkTFIR = input.data_rate*input.FIR;
 Gpass = floor(G*input.Fpass/clkTFIR);
 Gstop=ceil(G*input.Fstop/clkTFIR);
 Gpass = min(Gpass,Gstop-1);
@@ -256,7 +256,7 @@ for m = Gstop:(G/2)
     rg(g) = 0;
 end
 wg1 = abs(freqz(Filter1,omega(Gpass+2:end),input.converter_rate).*analogresp('Tx',omega(Gpass+2:end),input.converter_rate,b1,a1,b2,a2));
-wg2 = (sqrt(input.FIR_interp)*wg1)/(dBinv(-input.dBstop));
+wg2 = (sqrt(input.FIR)*wg1)/(dBinv(-input.dBstop));
 wg3 = dBinv(input.dBstop_FIR);
 wg = max(wg2,wg3);
 grid = fg;
@@ -278,7 +278,7 @@ W1 = weight(1:Gpass+1);
 W2 = weight(Gpass+2:end);
 
 % Determine the number of taps for TFIR
-switch input.FIR_interp
+switch input.FIR
     case 1
         Nmax = 64;
     case 2
@@ -335,7 +335,7 @@ while (1)
     end
     tap_store(i,1:M)=ccoef+scoef;
 
-    Hmd = mfilt.firinterp(input.FIR_interp,tap_store(i,1:M));
+    Hmd = mfilt.firinterp(input.FIR,tap_store(i,1:M));
     if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
         set(Hmd,'arithmetic','fixed');
         Hmd.InputWordLength = 16;
@@ -374,12 +374,12 @@ while (1)
     end
 end
 
-if input.int_FIR == 1 && input.FIR_interp == 2
+if input.int_FIR == 1 && input.FIR == 2
     R = rem(length(h),32);
     if R ~= 0
         h = [zeros(1,8),h,zeros(1,8)];
     end
-elseif input.int_FIR == 1 && input.FIR_interp == 4
+elseif input.int_FIR == 1 && input.FIR == 4
     R = rem(length(h),64);
     if R ~= 0
         newlength = ceil(length(h)/64)*64;
@@ -388,7 +388,7 @@ elseif input.int_FIR == 1 && input.FIR_interp == 4
     end
 end
 
-Hmd = mfilt.firinterp(input.FIR_interp,h);
+Hmd = mfilt.firinterp(input.FIR,h);
 if license('test','fixed_point_toolbox') && license('checkout','fixed_point_toolbox')
     set(Hmd,'arithmetic','fixed');
     Hmd.InputWordLength = 16;
@@ -418,9 +418,9 @@ switch aTFIR
     otherwise
         gain = -12;
 end
-if input.FIR_interp == 2
+if input.FIR == 2
     gain = gain+6;
-elseif input.FIR_interp == 4
+elseif input.FIR == 4
     gain = gain+12;
 end
 if gain > 0
@@ -436,7 +436,7 @@ if length(tfirtaps) < 128
 end
 
 webinar.Fin = input.data_rate;
-webinar.FIR_interp = input.FIR_interp;
+webinar.FIR_interp = input.FIR;
 webinar.HB_interp = input.HB_interp;
 webinar.DAC_mult = input.DAC_mult;
 webinar.PLL_mult = input.PLL_mult;
@@ -456,14 +456,14 @@ webinar.Hmd_tx = Hmd;
 webinar.enable_tx = enables;
 
 tohw.TXSAMP = input.data_rate;
-tohw.TF = input.data_rate * input.FIR_interp;
+tohw.TF = input.data_rate * input.FIR;
 tohw.T1 = tohw.TF * input.HB1;
 tohw.T2 = tohw.T1 * input.HB2;
 tohw.DAC = input.converter_rate;
 tohw.BBPLL = input.clkPLL;
 tohw.Coefficient = tfirtaps;
 tohw.CoefficientSize = length(h);
-tohw.Interp = input.FIR_interp;
+tohw.Interp = input.FIR;
 tohw.Gain = gain;
 tohw.RFBandwidth = input.RFbw;
 
