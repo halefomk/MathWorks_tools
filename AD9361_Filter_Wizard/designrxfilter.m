@@ -1,9 +1,8 @@
 % Inputs (structure containing the following fields)
 % ============================================
-% Fin        = Input sample data rate (in Hz)
-% FIR_interp = FIR interpolation factor
-% HB_interp  = half band filters interpolation factor
-% DAC_mult   = ADC to DAC ratio
+% Fout       = Output sample data rate (in Hz)
+% FIR_interp = FIR decimation factor
+% HB_interp  = half band filters decimation factor
 % PLL_mult   = PLL multiplication
 % Fpass      = passband frequency (in Hz)
 % Fstop      = stopband frequency (in Hz)
@@ -16,9 +15,9 @@
 %
 % Outputs
 % ===============================================
-% tfirtaps   = fixed point coefficients for AD9361
-% txFilters  = system object for visualization
+% rfirtaps   = fixed point coefficients for AD9361
+% rxFilters  = system object for visualization
 
-function [tfirtaps,txFilters] = designtxfilters9361(input)
+function [rfirtaps,rxFilters] = designrxfilter(input)
 
-[tfirtaps,txFilters,~,~,~,~,~,~,~,~,~,~] = internal_designtxfilters(input);
+[rfirtaps,rxFilters,~,~,~,~,~,~,~,~,~,~] = internal_designrxfilter(input);
