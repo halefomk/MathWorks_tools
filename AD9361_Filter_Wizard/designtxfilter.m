@@ -20,5 +20,6 @@
 % txFilters  = system object for visualization
 
 function [tfirtaps,txFilters] = designtxfilter(input)
-
-[tfirtaps,txFilters,~,~,~,~,~,~,~,~,~,~] = internal_designtxfilter(input);
+result = internal_designtxfilter(input);
+tfirtaps = result.tfirtaps;
+txFilters = result.txFilters;

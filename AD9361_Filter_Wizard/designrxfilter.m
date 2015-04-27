@@ -19,5 +19,6 @@
 % rxFilters  = system object for visualization
 
 function [rfirtaps,rxFilters] = designrxfilter(input)
-
-[rfirtaps,rxFilters,~,~,~,~,~,~,~,~,~,~] = internal_designrxfilter(input);
+result = internal_designrxfilter(input);
+rfirtaps = result.rfirtaps;
+rxFilters = result.rxFilters;
