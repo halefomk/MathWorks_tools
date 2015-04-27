@@ -65,19 +65,38 @@
 
 function result = internal_designtxfilter(input)
 
-% Sample data rate passed in
-if ~isstruct(input)
-	Fin = input;
-	input = {};
-	input.Rdata = Fin;
-	input.RxTx = 'Tx';
-	input = cook_input(input);
+if ~isfield(input, 'RFbw')
+    new_input.RxTx = 'Tx';
+    if ~isstruct(input)
+        % Sample data rate passed in
+        new_input.Rdata = input;
+    elseif isfield(input, 'RXSAMP')
+        % Hardware structure passed in
+        new_input.Rdata = input.RXSAMP;
+        new_input.FIR = input.RF/input.RXSAMP;
+        new_input.HB1 = input.R1/input.RF;
+        new_input.HB2 = input.R2/input.R1;
+        new_input.HB3 = input.ADC/input.R2;
+        new_input.PLL_rate = input.BBPLL;
+        new_input.PLL_mult = input.BBPLL/input.ADC;
+        new_input.DAC_div = 1;
 
-	input.converter_rate = input.Rdata * input.FIR * input.HB1 * input.HB2 * input.HB3;
-	input.clkPLL = input.PLL_rate;
-	input.dBstop_FIR = input.FIRdBmin;
-	input.int_FIR = 1;
-	input.wnom = 0;
+        if new_input.PLL_mult > 64
+            X = ['Date rate = ', num2str(input.RXSAMP), ' Hz. Rx BBPLL is too high for Tx to match.'];
+            disp(X);
+        end
+    end
+
+    input = cook_input(new_input);
+    [input.RFbw, input.caldiv] = calculate_rfbw(input, false);
+    input.DAC_mult = input.DAC_div;
+    input.data_rate = input.Rdata;
+    input.HB_interp = input.HB1 * input.HB2 * input.HB3;
+    input.converter_rate = input.Rdata * input.FIR * input.HB1 * input.HB2 * input.HB3;
+    input.clkPLL = input.PLL_rate;
+    input.dBstop_FIR = input.FIRdBmin;
+    input.int_FIR = 1;
+    input.wnom = 0;
 end
 
 if ~input.wnom
