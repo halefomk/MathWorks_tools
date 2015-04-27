@@ -1,4 +1,4 @@
-% Inputs
+% Inputs (structure containing the following fields)
 % ============================================
 % Fout       = Output sample data rate (in Hz)
 % FIR_interp = FIR decimation factor
@@ -14,10 +14,10 @@
 % wnom       = analog cutoff frequency (in Hz)
 %
 % Outputs
-%===============================================
-% rfirtaps         = fixed point coefficients for AD9361
-% rxFilters        = system object for visualization
-%
-function [rfirtaps,rxFilters] = designrxfilters9361(Fout,FIR_interp,HB_interp,PLL_mult,Fpass,Fstop,dBripple,dBstop,dBstop_FIR,phEQ,int_FIR,wnom)
+% ===============================================
+% rfirtaps   = fixed point coefficients for AD9361
+% rxFilters  = system object for visualization
 
-[rfirtaps,rxFilters,~,~,~,~,~,~,~,~,~,~] = internal_designrxfilters9361_sinc(Fout,FIR_interp,HB_interp,PLL_mult,Fpass,Fstop,dBripple,dBstop,dBstop_FIR,phEQ,int_FIR,wnom);
+function [rfirtaps,rxFilters] = designrxfilters9361(input)
+
+[rfirtaps,rxFilters,~,~,~,~,~,~,~,~,~,~] = internal_designrxfilters(input);

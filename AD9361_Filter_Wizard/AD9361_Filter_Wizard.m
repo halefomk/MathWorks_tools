@@ -1012,9 +1012,9 @@ drawnow;
 if (get(handles.filter_type, 'Value') == 1)
     filter_input.clkPLL = filter_input.converter_rate * filter_input.PLL_mult;
     if (filter_input.phEQ == 0)
-        filter_input.phEQ = minimize_group_delay(handles, @internal_designrxfilters9361_sinc, filter_input);
+        filter_input.phEQ = minimize_group_delay(handles, @internal_designrxfilter, filter_input);
     end
-    filter_result = internal_designrxfilters9361_sinc(filter_input);
+    filter_result = internal_designrxfilter(filter_input);
 
     handles.filters = filter_result.rxFilters;
     handles.rfirtaps = filter_result.rfirtaps;
@@ -1035,9 +1035,9 @@ else
     filter_input.DAC_mult = get(handles.DAC_by2, 'Value');
     filter_input.clkPLL = filter_input.converter_rate * filter_input.DAC_mult * filter_input.PLL_mult;
     if (filter_input.phEQ == 0)
-        filter_input.phEQ = minimize_group_delay(handles, @internal_designtxfilters9361_sinc, filter_input);
+        filter_input.phEQ = minimize_group_delay(handles, @internal_designtxfilter, filter_input);
     end
-    filter_result = internal_designtxfilters9361_sinc(filter_input);
+    filter_result = internal_designtxfilter(filter_input);
 
     handles.filters = filter_result.txFilters;
     handles.tfirtaps = filter_result.tfirtaps;

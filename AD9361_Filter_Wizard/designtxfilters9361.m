@@ -1,4 +1,4 @@
-% Inputs
+% Inputs (structure containing the following fields)
 % ============================================
 % Fin        = Input sample data rate (in Hz)
 % FIR_interp = FIR interpolation factor
@@ -15,10 +15,10 @@
 % wnom       = analog cutoff frequency (in Hz)
 %
 % Outputs
-%===============================================
-% tfirtaps         = fixed point coefficients for AD9361
-% txFilters        = system object for visualization
-%
-function [tfirtaps,txFilters] = designtxfilters9361(Fin,FIR_interp,HB_interp,DAC_mult,PLL_mult,Fpass,Fstop,dBripple,dBstop,dBstop_FIR,phEQ,int_FIR, wnom)
+% ===============================================
+% tfirtaps   = fixed point coefficients for AD9361
+% txFilters  = system object for visualization
 
-[tfirtaps,txFilters,~,~,~,~,~,~,~,~,~,~] = internal_designtxfilters9361_sinc(Fin,FIR_interp,HB_interp,DAC_mult,PLL_mult,Fpass,Fstop,dBripple,dBstop,dBstop_FIR,phEQ,int_FIR, wnom);
+function [tfirtaps,txFilters] = designtxfilters9361(input)
+
+[tfirtaps,txFilters,~,~,~,~,~,~,~,~,~,~] = internal_designtxfilters(input);
