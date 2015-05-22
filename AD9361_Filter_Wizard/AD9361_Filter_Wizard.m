@@ -249,6 +249,16 @@ handles = guidata(hObject);
 handles.freq_units = get(handles.Freq_units, 'Value');
 handles.active_plot = 0;
 
+gitinfo = getGitInfo('..');
+if ~isempty(gitinfo)
+    version_str = sprintf('%s-g%s', gitinfo.branch, gitinfo.hash(1:7));
+else
+    version_str = '3.1';
+end
+
+titleBar = sprintf('ADI Filter Wizard (%s)', version_str);
+set(handles.AD9361_Filter_app, 'Name', titleBar);
+
 % set(zoom(gca),'ActionPostCallback',@(x,y) zoom_axis(gca));
 
 % Update handles structure
